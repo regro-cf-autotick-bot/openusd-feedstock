@@ -1,38 +1,47 @@
-Link the Python libraries into C++ ctest executables.
+Link libpython into the C++ ctest executables.
 
-Since OpenUSD 26.08, PYTHON_LIBRARIES resolves (when
-PXR_PY_UNDEFINED_DYNAMIC_LOOKUP is ON) to a generator expression that
-links libpython only into EXECUTABLE targets, so that standalone
-executables do not hit missing Python symbols while the shared libraries
-themselves keep using -undefined dynamic_lookup. Regular CLI binaries get
-this via the interface link libraries of the USD libraries they consume,
-but the C++ test executables built by pxr_build_test only link
-${bt_LIBRARIES} and never pull in ${PYTHON_LIBRARIES}.
-
-On macOS, conda-forge's Python reports a static LDLIBRARY
-(libpythonX.Y.a) via sysconfig, which makes OpenUSD force
-PXR_PY_UNDEFINED_DYNAMIC_LOOKUP ON. The USD C++ libraries reference
-Python C-API symbols (TfPython, boost::python glue) that are left
-undefined for runtime resolution, so a C++ test binary that does not link
-libpython fails to load with errors such as:
+On macOS, conda-forge's Python reports a static LDLIBRARY (libpythonX.Y.a)
+via sysconfig, so OpenUSD forces PXR_PY_UNDEFINED_DYNAMIC_LOOKUP ON. In
+that mode the USD C++ libraries reference Python C-API symbols (TfPython,
+boost::python glue) that are left undefined for resolution at runtime, and
+libpython is only meant to be linked into executables. Installed binaries
+get libpython through the generator expression added to the boost "python"
+target's interface (see link_python_to_executables.patch), but that hookup
+does not take effect for the executables built by pxr_build_test, so they
+abort at load with errors such as:
 
     dyld: symbol not found in flat namespace '__Py_NoneStruct'
 
-This adds ${PYTHON_LIBRARIES} to the test link. Because a test target is
-an EXECUTABLE, the generator expression evaluates to the Python library
-for it (and to nothing for shared libraries), so the test binaries link
-libpython and resolve those symbols. It only affects the (non-installed)
-test executables, not the shipped libraries.
+(also _PyClassMethod_Type, _PyExc_ValueError). This regressed the whole
+C++ ctest suite on macOS going from v26.05 (949/949 passing) to v26.08
+(195/991 failing).
+
+Link libpython (Python3::Python) directly and unconditionally into the
+test executables when PXR_PY_UNDEFINED_DYNAMIC_LOOKUP is enabled, rather
+than relying on the interface generator expression. These test
+executables are never installed, so only the test binaries are affected;
+the shipped libraries are unchanged.
 
 diff --git a/cmake/macros/Public.cmake b/cmake/macros/Public.cmake
-index 5f6a545..a019fe1 100644
+index 5f6a545..ee0dbb6 100644
 --- a/cmake/macros/Public.cmake
 +++ b/cmake/macros/Public.cmake
-@@ -661,6 +661,7 @@ function(pxr_build_test TEST_NAME)
-     )
-     _pxr_target_link_libraries(${TEST_NAME}
+@@ -663,6 +663,18 @@ function(pxr_build_test TEST_NAME)
          ${bt_LIBRARIES}
-+        ${PYTHON_LIBRARIES}
      )
 
++    # When PXR_PY_UNDEFINED_DYNAMIC_LOOKUP is enabled (forced ON on
++    # conda-forge macOS, where sysconfig reports a static Python LDLIBRARY),
++    # the USD libraries leave Python C-API symbols undefined for resolution at
++    # runtime and only executables are meant to link libpython. The generator
++    # expression that wires this up for the installed binaries does not take
++    # effect for these test executables, so they abort at load with errors
++    # such as "symbol not found in flat namespace '__Py_NoneStruct'". Link
++    # libpython explicitly here; these test executables are never installed.
++    if(PXR_PY_UNDEFINED_DYNAMIC_LOOKUP)
++        target_link_libraries(${TEST_NAME} PUBLIC Python3::Python)
++    endif()
++
      # Find libraries under the install prefix, which has the core USD
+     # libraries.
+     _pxr_init_rpath(rpath "tests")
