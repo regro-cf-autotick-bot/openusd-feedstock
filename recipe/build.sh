@@ -32,6 +32,10 @@ if [[ "${build_platform}" != "${target_platform}" ]]; then
     CMAKE_ARGS="${CMAKE_ARGS} -DPYSIDEUICBINARY=$BUILD_PREFIX/lib/qt6/uic"
 fi
 
+# PXR_PYTHON_INSTALL_DIR pins the Python bindings to lib/python (the hard-coded
+# location used before OpenUSD 26.08). As of 26.08 it defaults to a
+# lib/pythonX.Y/site-packages layout, which would break the "mv lib/python/pxr"
+# step below.
 cmake ${CMAKE_ARGS} -GNinja .. \
       -DCMAKE_BUILD_TYPE=Release \
       -DBUILD_TESTING:BOOL=ON \
@@ -40,7 +44,8 @@ cmake ${CMAKE_ARGS} -GNinja .. \
       -DPXR_BUILD_USD_IMAGING:BOOL=ON \
       -DPXR_ENABLE_PYTHON_SUPPORT:BOOL=ON \
       -DCMAKE_EXPORT_NO_PACKAGE_REGISTRY:BOOL=ON \
-      -DPXR_PYTHON_SHEBANG="/usr/bin/env python"
+      -DPXR_PYTHON_SHEBANG="/usr/bin/env python" \
+      -DPXR_PYTHON_INSTALL_DIR=lib/python
 
 cmake --build . --config Release
 cmake --build . --config Release --target install
@@ -49,8 +54,12 @@ cmake --build . --config Release --target install
 # testJsIO is disabled as it now actually links usd_tf, and so the linker remove the link to Python
 # testExecGeomXformable_Perf_Large is disabled as it is disabled upstream, see 
 # https://github.com/PixarAnimationStudios/OpenUSD/blob/v25.11/.github/workflows/buildusd.yml#L83
+# --no-tests=ignore keeps ctest from erroring when it registers no tests (the
+# default action became "error" in recent ctest). On some configurations (e.g.
+# linux_64) OpenUSD registers no ctest tests at all, which older ctest silently
+# treated as success.
 if [[ "${CONDA_BUILD_CROSS_COMPILATION:-}" != "1" || "${CROSSCOMPILING_EMULATOR}" != "" ]]; then
-    ctest --output-on-failure -C Release -E "testWorkThreadLimits3|testJsIO|testExecGeomXformable_Perf_Large|${OPENUSD_ADDITIONAL_CTEST_TO_SKIP}"
+    ctest --output-on-failure --no-tests=ignore -C Release -E "testWorkThreadLimits3|testJsIO|testExecGeomXformable_Perf_Large|${OPENUSD_ADDITIONAL_CTEST_TO_SKIP}"
 fi
 
 # Workaround for https://github.com/prefix-dev/rattler-build/issues/1955
