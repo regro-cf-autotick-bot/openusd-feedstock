@@ -15,9 +15,6 @@ source:
       - link_python_to_executables.patch
       - add_pxr_install_dll_in_bin.patch
       - remove_hardcoded_prefix.patch
-      # Link libpython into the C++ ctest executables so they don't fail to
-      # load with missing Python symbols (e.g. __Py_NoneStruct) on macOS.
-      - fix_macos_test_python_link.patch
 
 build:
   number: 0
