@@ -1,45 +1,52 @@
-Link libpython into the C++ ctest executables.
+Link libpython into the C++ ctest executables and keep it past dead-stripping.
 
 On macOS, conda-forge's Python reports a static LDLIBRARY (libpythonX.Y.a)
 via sysconfig, so OpenUSD forces PXR_PY_UNDEFINED_DYNAMIC_LOOKUP ON. In
 that mode the USD C++ libraries reference Python C-API symbols (TfPython,
 boost::python glue) that are left undefined for resolution at runtime, and
-libpython is only meant to be linked into executables. Installed binaries
-get libpython through the generator expression added to the boost "python"
-target's interface (see link_python_to_executables.patch), but that hookup
-does not take effect for the executables built by pxr_build_test, so they
-abort at load with errors such as:
+only executables link libpython. The C++ test executables built by
+pxr_build_test do not reference any Python symbol directly, and
+conda-forge's LDFLAGS pass -Wl,-dead_strip_dylibs, so even when libpython
+is put on their link line the linker strips it again. The test binaries
+then load without libpython in the process and abort with:
 
     dyld: symbol not found in flat namespace '__Py_NoneStruct'
 
 (also _PyClassMethod_Type, _PyExc_ValueError). This regressed the whole
-C++ ctest suite on macOS going from v26.05 (949/949 passing) to v26.08
-(195/991 failing).
+C++ ctest suite on macOS going from v26.05 to v26.08.
 
-Link libpython (Python3::Python) directly and unconditionally into the
-test executables when PXR_PY_UNDEFINED_DYNAMIC_LOOKUP is enabled, rather
-than relying on the interface generator expression. These test
-executables are never installed, so only the test binaries are affected;
-the shipped libraries are unchanged.
+Link libpython (Python3::Python) explicitly into the test executables and,
+on Apple, additionally pass ld64's -needed_library for it, which preserves
+the load command despite -dead_strip_dylibs. Verified locally on
+osx-arm64: previously failing tests (testTfPyLock, testGfIsFloatingPoint,
+testTraceCategory, testSdfGlobPattern) link @rpath/libpythonX.Y.dylib and
+run successfully after this change. These test executables are never
+installed, so the shipped libraries are unchanged.
 
 diff --git a/cmake/macros/Public.cmake b/cmake/macros/Public.cmake
-index 5f6a545..ee0dbb6 100644
+index 5f6a545..bdb4ca6 100644
 --- a/cmake/macros/Public.cmake
 +++ b/cmake/macros/Public.cmake
-@@ -663,6 +663,18 @@ function(pxr_build_test TEST_NAME)
+@@ -663,6 +663,24 @@ function(pxr_build_test TEST_NAME)
          ${bt_LIBRARIES}
      )
 
 +    # When PXR_PY_UNDEFINED_DYNAMIC_LOOKUP is enabled (forced ON on
 +    # conda-forge macOS, where sysconfig reports a static Python LDLIBRARY),
 +    # the USD libraries leave Python C-API symbols undefined for resolution at
-+    # runtime and only executables are meant to link libpython. The generator
-+    # expression that wires this up for the installed binaries does not take
-+    # effect for these test executables, so they abort at load with errors
-+    # such as "symbol not found in flat namespace '__Py_NoneStruct'". Link
-+    # libpython explicitly here; these test executables are never installed.
++    # runtime and only executables link libpython. These test executables do
++    # not reference any Python symbol directly, so the -dead_strip_dylibs
++    # flag in conda-forge's LDFLAGS strips libpython from them again and they
++    # abort at load with e.g. "symbol not found in flat namespace
++    # '__Py_NoneStruct'". Link libpython explicitly and, on Apple, mark it as
++    # needed (ld64's -needed_library overrides -dead_strip_dylibs) so the
++    # load command survives. These test executables are never installed.
 +    if(PXR_PY_UNDEFINED_DYNAMIC_LOOKUP)
 +        target_link_libraries(${TEST_NAME} PUBLIC Python3::Python)
++        if(APPLE)
++            target_link_options(${TEST_NAME} PRIVATE
++                "LINKER:-needed_library,$<TARGET_FILE:Python3::Python>")
++        endif()
 +    endif()
 +
      # Find libraries under the install prefix, which has the core USD
