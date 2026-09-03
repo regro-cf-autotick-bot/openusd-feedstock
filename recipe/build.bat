@@ -1,6 +1,9 @@
 mkdir build
 cd build
 
+:: PXR_PYTHON_INSTALL_DIR pins the Python bindings to lib/python (the location
+:: used before OpenUSD 26.08). As of 26.08 it defaults to a Lib\site-packages
+:: layout, which would break the "move lib\python\pxr" step below.
 cmake %CMAKE_ARGS% ^
     -G "Ninja" ^
     -DCMAKE_INSTALL_PREFIX=%LIBRARY_PREFIX% ^
@@ -13,6 +16,7 @@ cmake %CMAKE_ARGS% ^
     -DPXR_ENABLE_PYTHON_SUPPORT=ON ^
     -DCMAKE_EXPORT_NO_PACKAGE_REGISTRY:BOOL=ON ^
     -DPXR_PYTHON_SHEBANG="/usr/bin/env python" ^
+    -DPXR_PYTHON_INSTALL_DIR=lib/python ^
     -DPython3_EXECUTABLE=%PYTHON% ^
     -DPython_EXECUTABLE=%PYTHON% ^
     -DPXR_INSTALL_DLL_IN_BIN:BOOL=ON ^
@@ -36,7 +40,9 @@ if errorlevel 1 exit 1
 :: resulting in a package (for example for a given Python version) silently not being uploaded
 :: testExecGeomXformable_Perf_Large is disabled as it is disabled upstream, see 
 :: https://github.com/PixarAnimationStudios/OpenUSD/blob/v25.11/.github/workflows/buildusd.yml#L83
-ctest --output-on-failure -C Release -E "testWorkThreadLimits|testUsdResolverExample|TfPathUtils|testWorkDispatcher|testUsdUtilsFlattenLayerStack|testExecGeomXformable_Perf_Large"
+:: --no-tests=ignore keeps ctest from erroring when no tests are registered
+:: (recent ctest defaults that action to "error").
+ctest --output-on-failure --no-tests=ignore -C Release -E "testWorkThreadLimits|testUsdResolverExample|TfPathUtils|testWorkDispatcher|testUsdUtilsFlattenLayerStack|testExecGeomXformable_Perf_Large"
 if errorlevel 1 exit 1
 
 :: The CMake install logic of openusd is not flexible, so let's fix the files

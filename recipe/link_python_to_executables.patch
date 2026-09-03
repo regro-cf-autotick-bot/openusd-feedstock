@@ -1,8 +1,8 @@
 diff --git a/pxr/external/boost/python/CMakeLists.txt b/pxr/external/boost/python/CMakeLists.txt
-index 3874e7b24d..b5bb9f15a4 100644
+index dbb63a2..8f2466b 100644
 --- a/pxr/external/boost/python/CMakeLists.txt
 +++ b/pxr/external/boost/python/CMakeLists.txt
-@@ -338,6 +338,23 @@ target_compile_definitions(python
+@@ -339,6 +339,35 @@ target_compile_definitions(python
      PRIVATE $<$<NOT:$<CONFIG:Debug>>:NDEBUG>
  )
  
@@ -21,9 +21,20 @@ index 3874e7b24d..b5bb9f15a4 100644
 +    set_property(TARGET python APPEND PROPERTY INTERFACE_LINK_LIBRARIES
 +        "$<$<STREQUAL:$<TARGET_PROPERTY:TYPE>,EXECUTABLE>:Python3::Python>"
 +    )
++    # conda-forge's macOS LDFLAGS include -Wl,-dead_strip_dylibs, which strips
++    # the Python library linked just above back out of executables that do not
++    # reference a Python symbol directly (their linked USD libraries reference
++    # the symbols but leave them undefined for resolution at runtime). Without
++    # libpython in the process such executables abort at load with e.g.
++    # "symbol not found in flat namespace '__Py_NoneStruct'". ld64's
++    # -needed_library keeps the load command so libpython stays linked.
++    if(APPLE)
++        set_property(TARGET python APPEND PROPERTY INTERFACE_LINK_OPTIONS
++            "$<$<STREQUAL:$<TARGET_PROPERTY:TYPE>,EXECUTABLE>:LINKER:-needed_library,$<TARGET_FILE:Python3::Python>>"
++        )
++    endif()
 +endif()
 +
  # Since we're not going through the normal pxr_build_test macros
  # we need to elide tests here if requested.
  if (NOT PXR_BUILD_TESTS)
-
